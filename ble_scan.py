@@ -13,7 +13,7 @@ db_name = 'blenextinqu_devices'
 hostname = "JCI_Nissan_Service"
 
 # Function to write data to the MySQL database
-def write_to_mysql(device_address, rssi, device_name, metadata, hostname):
+def write_to_mysql(timestamp, device_address, rssi, device_name, metadata, hostname):
     try:
         # Connect to the database
         connection = pymysql.connect(host=db_host, user=db_user, password=db_password, database=db_name)
@@ -22,11 +22,11 @@ def write_to_mysql(device_address, rssi, device_name, metadata, hostname):
         cursor = connection.cursor()
         
         # SQL query to insert data into the database
-        insert_query = """INSERT INTO devices (device_address, rssi, device_name, metadata, hostname) 
-                          VALUES (%s, %s, %s, %s, %s)"""
+        insert_query = """INSERT INTO devices (timestamp, device_address, rssi, device_name, metadata, hostname) 
+                          VALUES (%s, %s, %s, %s, %s, %s)"""
         
         # Data to insert
-        data = (device_address, rssi, device_name, metadata, hostname)
+        data = (timestamp, device_address, rssi, device_name, metadata, hostname)
 
         # Execute the SQL query with the data
         cursor.execute(insert_query, data)
@@ -52,7 +52,8 @@ async def discover():
 
     # Update device info
     for device in devices:
-        write_to_mysql(device.address, device.rssi, device.name, str(device.metadata), hostname)
+        timestamp = datetime.now()
+        write_to_mysql(timestamp, device.address, device.rssi, device.name, str(device.metadata), hostname)
 
 # Continually discover devices and write to database
 while True:
