@@ -1,58 +1,32 @@
-import os
-import csv
 import asyncio
-import json
 from bleak import BleakScanner
-from datetime import datetime, timedelta
-from collections import defaultdict
-import time
-import logging
+from datetime import datetime
 import pymysql
-import requests  # added import statement for 'requests'
-
-# Configure logging
-log_file = 'ble_scan.log'
-logging.basicConfig(
-    level=logging.INFO,
-    format='[%(asctime)s] [%(levelname)s] %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler(log_file, 'a', 'utf-8', delay=False)
-    ]
-)
-
-# Variables to handle device metadata and dates seen
-device_dict = defaultdict(lambda: {'first_seen': None, 'last_seen': None, 'ignore': False})
-dates_seen = defaultdict(list)
-
-# Variables to handle grouping of devices with similar signal strengths discovered at the same time
-device_cache = []
-cache_time_window = timedelta(seconds=5)
-signal_strength_window = 5
+import time
 
 # Add MySQL database credentials
 db_host = '209.126.1.228'
 db_user = 'blenextinqu_drearystate'
 db_password = 'Silverbook224!'
 db_name = 'blenextinqu_devices'
-
-# Device Identifier (Replace 'JCI_Nissan_Service' with the desired device name)
-device_identifier = 'JCI_Nissan_Service'
+# Set hostname
+hostname = "JCI_Nissan_Service"
 
 # Function to write data to the MySQL database
-def write_to_mysql(date, metadata, first_seen, last_seen, ignore, device_name):
+def write_to_mysql(device_address, rssi, device_name, metadata, hostname):
     try:
         # Connect to the database
         connection = pymysql.connect(host=db_host, user=db_user, password=db_password, database=db_name)
 
         # Create a cursor to interact with the database
         cursor = connection.cursor()
-
+        
         # SQL query to insert data into the database
-        insert_query = "INSERT INTO devices (date, metadata, first_seen, last_seen, ignore, device_name) VALUES (%s, %s, %s, %s, %s, %s)"
-
+        insert_query = """INSERT INTO devices (device_address, rssi, device_name, metadata, hostname) 
+                          VALUES (%s, %s, %s, %s, %s)"""
+        
         # Data to insert
-        data = (date, metadata, first_seen, last_seen, ignore, device_name)
+        data = (device_address, rssi, device_name, metadata, hostname)
 
         # Execute the SQL query with the data
         cursor.execute(insert_query, data)
@@ -60,23 +34,15 @@ def write_to_mysql(date, metadata, first_seen, last_seen, ignore, device_name):
         # Commit the changes to the database
         connection.commit()
 
-        print("Data inserted successfully!")
-
     except Exception as e:
-        print("Error:", e)
+        print(f"Error inserting to MySQL: {e}")
 
     finally:
         # Close the database connection
         if connection:
             connection.close()
 
-# Check for updates and update the script
-last_modified = check_for_updates()
-if last_modified:
-    current_last_modified = datetime.fromtimestamp(os.path.getmtime(__file__))
-    if last_modified > current_last_modified:
-        update_script()
-
+# Discovery function
 async def discover():
     # Initialize the BleakScanner
     scanner = BleakScanner()
@@ -84,29 +50,11 @@ async def discover():
     # Discover devices
     devices = await scanner.discover()
 
+    # Update device info
     for device in devices:
-        metadata = device.metadata
-        metadata_str = json.dumps(metadata)
+        write_to_mysql(device.address, device.rssi, device.name, str(device.metadata), hostname)
 
-        device_dict[metadata_str]['last_seen'] = datetime.now()
-
-        if device_dict[metadata_str]['first_seen'] is None:
-            device_dict[metadata_str]['first_seen'] = device_dict[metadata_str]['last_seen']
-
-# Schedule the script to run every day
+# Continually discover devices and write to database
 while True:
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(discover())
-
-    # Append the devices to a CSV file
-    with open('devices.csv', 'w') as f:
-        writer = csv.writer(f)
-        writer.writerow(["Date", "Metadata", "First Seen", "Last Seen", "Ignore"])
-
-        for metadata_str, data in device_dict.items():
-            writer.writerow([datetime.now(), metadata_str, data['first_seen'], data['last_seen'], data['ignore']])
-
-            # Write data to the MySQL database
-            write_to_mysql(datetime.now(), metadata_str, data['first_seen'], data['last_seen'], data['ignore'], device_identifier)
-
-    time.sleep(60)
+    asyncio.run(discover())
+    time.sleep(60)  # Delay for 1 minute
