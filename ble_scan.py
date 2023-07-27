@@ -2,7 +2,9 @@ import asyncio
 import os
 import subprocess
 import pymysql
-from bleak import BleakScanner, BleakClient
+import time
+from bleak import BleakScanner
+from datetime import datetime
 
 # Add MySQL database credentials
 db_host = '209.126.1.228'
@@ -17,7 +19,7 @@ def get_hostname():
 hostname = get_hostname()
 
 # Function to write data to the MySQL database
-def write_to_mysql(device_hostname, device_address, device_name, device_rssi, metadata, services, characteristics, descriptors, read_value, write_value):
+def write_to_mysql(device_hostname, timestamp, device_address, device_name, device_rssi, metadata):
     try:
         # Connect to the database
         connection = pymysql.connect(host=db_host, user=db_user, password=db_password, database=db_name)
@@ -27,11 +29,11 @@ def write_to_mysql(device_hostname, device_address, device_name, device_rssi, me
 
         # SQL query to insert data into the database
         insert_query = """INSERT INTO devices 
-                          (device_hostname, device_address, device_name, device_rssi, metadata, services, characteristics, descriptors, read_value, write_value) 
-                          VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
+                          (device_hostname, timestamp, device_address, device_name, device_rssi, metadata) 
+                          VALUES (%s, %s, %s, %s, %s, %s)"""
 
         # Data to insert
-        data = (device_hostname, device_address, device_name, device_rssi, metadata, services, characteristics, descriptors, read_value, write_value)
+        data = (device_hostname, timestamp, device_address, device_name, device_rssi, str(metadata))
 
         # Execute the SQL query with the data
         cursor.execute(insert_query, data)
@@ -53,23 +55,10 @@ async def discover():
 
     for device in devices:
         try:
-            client = BleakClient(device)
-            await client.connect()
-
-            services = await client.get_services()
-            characteristics = [str(char.uuid) for service in services for char in service.characteristics]
-            descriptors = [str(desc.uuid) for service in services for char in service.characteristics for desc in char.descriptors]
-            
-            # Replace this UUID with your actual characteristic's UUID
-            characteristic_uuid = "00002a37-0000-1000-8000-00805f9b34fb"
-            read_value = await client.read_gatt_char(characteristic_uuid)
-            await client.write_gatt_char(characteristic_uuid, bytearray([0x01, 0x00]))
-            write_value = await client.read_gatt_char(characteristic_uuid)
+            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
             # Insert data into the database
-            write_to_mysql(hostname, device.address, device.name, device.rssi, device.metadata, services, characteristics, descriptors, read_value, write_value)
-
-            await client.disconnect()
+            write_to_mysql(hostname, timestamp, device.address, device.name, device.rssi, device.metadata)
 
         except Exception as e:
             print(f"Error with device {device.address}: {e}")
